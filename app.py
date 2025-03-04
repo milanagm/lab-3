@@ -17,6 +17,10 @@ def create_app():
     api = Api(app)
     api.register_blueprint(endpoints_blueprint)
 
+    @app.errorhandler(ValidationError)
+    def handle_marshmallow_error(error):
+        return jsonify({"error": "Invalid data provided", "details": error.messages}), 400
+
     return app
 
 if __name__ == '__main__':

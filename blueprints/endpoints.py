@@ -61,7 +61,9 @@ class SongList(MethodView):
 class Song(MethodView):
     @endpoints_blueprint.response(200, SongSchema)
     def get(self, title, artist):
+
         """Einen Song anhand von Titel & Artist abrufen"""
+
         song = next((song for song in read_songs() if song["title"].lower() == title.lower() 
                      and song["artist"].lower() == artist.lower()), None)
         if not song:
@@ -93,7 +95,9 @@ class Song(MethodView):
         return song_to_update
 
     def delete(self, title, artist):
+
         """Einen Song löschen"""
+        
         songs = read_songs()
         new_songs = [song for song in songs if not (song["title"].lower() == title.lower() and 
                                                     song["artist"].lower() == artist.lower())]
