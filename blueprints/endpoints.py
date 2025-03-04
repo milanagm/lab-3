@@ -2,50 +2,58 @@ from flask_smorest import Blueprint, abort
 from flask.views import MethodView
 from marshmallow import Schema, fields, validate
 import json
+import os
 
 # Blueprint-Instanz erstellen
 endpoints_blueprint = Blueprint("songs", __name__, description="Operations on songs")
 
 SONGS_FILE = 'songs.json'
 
-
 ######################################################################################
-# methoden
+# Methoden zum Lesen/Schreiben 
 def read_songs():
+    """Read songs from JSON file, return an empty list if file does not exist."""
+    if not os.path.exists(SONGS_FILE):
+        return []  # Return empty list if file is missing
     with open(SONGS_FILE, 'r') as file:
-        return json.load(file)
+        try:
+            return json.load(file)
+        except json.JSONDecodeError:
+            return []  # Return empty list if JSON is invalid
 
 def write_songs(songs):
+    """Write songs to JSON file."""
     with open(SONGS_FILE, 'w') as file:
         json.dump(songs, file, indent=4)
 
-
-#######################################################################################
-# Genre liste
+######################################################################################
+# Vordefinierte Genres für die Validierung
 GENRE_CHOICES = ["Pop", "Rock", "Jazz", "Hip-Hop", "Classical", "Electronic", "Country", "Blues", "Folk", "Reggae"]
 
-# schema zum abgleichen
+# Marshmallow Schema mit Validierung
 class SongSchema(Schema):
-    title = fields.String(required=True)
-    artist = fields.String(required=True)
-    genre = fields.String(required=True, validate=validate.OneOf(GENRE_CHOICES))
-    year = fields.Integer(required=True, validate=validate.Range(min=1900, max=2025))
+    title = fields.String(required=True, metadata={"description": "The title of the song"})
+    artist = fields.String(required=True, metadata={"description": "The name of the artist"})
+    genre = fields.String(required=True, validate=validate.OneOf(GENRE_CHOICES),
+                          metadata={"description": "Genre of the song (must be one of the predefined genres)"})
+    year = fields.Integer(required=True, validate=validate.Range(min=1900, max=2025),
+                          metadata={"description": "The release year of the song (1900-2025)"})
 
-#######################################################################################
-
-# Endpoint: Alle Songs anzeigen und adden
-@endpoints_blueprint.route('/songs')
+######################################################################################
+# Endpoint: GET alle Songs, POST neuen Song
+@endpoints_blueprint.route('/songs', methods=["GET", "POST"])
 class SongList(MethodView):
-    @endpoints_blueprint.response(200, SongSchema(many=True))
+    """Manage the collection of songs"""
+
+    @endpoints_blueprint.response(200, SongSchema(many=True), description="Retrieve all songs")
     def get(self):
+        """Fetch all songs from the database"""
         return read_songs()
 
     @endpoints_blueprint.arguments(SongSchema)
-    @endpoints_blueprint.response(201, SongSchema)
+    @endpoints_blueprint.response(201, SongSchema, description="Add a new song")
     def post(self, new_song):
-
-        """ Neuen Song adden (Unique pro artist)"""
-
+        """Add a new song to the collection (Title + Artist must be unique)"""
         songs = read_songs()
         if any(song['title'].lower() == new_song['title'].lower() and 
                song['artist'].lower() == new_song['artist'].lower() for song in songs):
@@ -54,16 +62,16 @@ class SongList(MethodView):
         songs.append(new_song)
         write_songs(songs)
         return new_song
-    
 
-# Einzelne Songs abrufen, aktualisieren und löschen
-@endpoints_blueprint.route("/songs/<string:title>/<string:artist>")
+######################################################################################
+#  Einzelne Songs abrufen, aktualisieren und löschen
+@endpoints_blueprint.route("/songs/<string:title>/<string:artist>", methods=["GET", "PUT", "DELETE"])
 class Song(MethodView):
-    @endpoints_blueprint.response(200, SongSchema)
+    """Retrieve, update, or delete a song"""
+
+    @endpoints_blueprint.response(200, SongSchema, description="Retrieve a song by title & artist")
     def get(self, title, artist):
-
-        """Einen Song anhand von Titel & Artist abrufen"""
-
+        """Retrieve a specific song based on title & artist"""
         song = next((song for song in read_songs() if song["title"].lower() == title.lower() 
                      and song["artist"].lower() == artist.lower()), None)
         if not song:
@@ -71,9 +79,9 @@ class Song(MethodView):
         return song
 
     @endpoints_blueprint.arguments(SongSchema)
-    @endpoints_blueprint.response(200, SongSchema)
+    @endpoints_blueprint.response(200, SongSchema, description="Update a song (Title + Artist must remain unique)")
     def put(self, updated_data, title, artist):
-        """Einen Song aktualisieren (Titel + Artist muss einzigartig bleiben)"""
+        """Update a song while ensuring Title + Artist remain unique"""
         songs = read_songs()
         song_to_update = next((song for song in songs if song["title"].lower() == title.lower() 
                                and song["artist"].lower() == artist.lower()), None)
@@ -81,7 +89,7 @@ class Song(MethodView):
         if not song_to_update:
             abort(404, message="Song not found")
 
-        #Kombi-check: Titel + Artist 
+        # Check if new Title + Artist combination exists
         if "title" in updated_data or "artist" in updated_data:
             new_title = updated_data.get("title", song_to_update["title"]).lower()
             new_artist = updated_data.get("artist", song_to_update["artist"]).lower()
@@ -94,10 +102,9 @@ class Song(MethodView):
         write_songs(songs)
         return song_to_update
 
+    @endpoints_blueprint.response(200, description="Delete a song by title & artist")
     def delete(self, title, artist):
-
-        """Einen Song löschen"""
-        
+        """Delete a song from the collection"""
         songs = read_songs()
         new_songs = [song for song in songs if not (song["title"].lower() == title.lower() and 
                                                     song["artist"].lower() == artist.lower())]
